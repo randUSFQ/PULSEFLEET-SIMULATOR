@@ -13,28 +13,36 @@ Interfaz de operación
         ├── Fleet Overview
         ├── Mission Board
         ├── Incident Center
-        ├── Map Editor
+        ├── Map Editor (+ panel de Puente Unreal Engine 5)
         └── Scenario Simulator
         │
 Motor PULSEFLEET
         ├── Robot Registry
         ├── Mission Scheduler
-        ├── Route Planner
+        ├── Route Planner (Dijkstra ponderado por distancia + congestión)
         ├── Traffic Reservation
         ├── Charging Manager
-        └── Exception Handler
+        ├── Exception Handler
+        └── Unreal Bridge (snapshot JSON → WebSocket)
         │
 AMR Simulator + almacenamiento local
+        │
+        └── (opcional) scripts/unreal-bridge-server.mjs ──▶ Unreal Engine 5
 ```
 
 ## Decisiones de diseño
 
 - El mapa se representa como un grafo de nodos y segmentos.
-- La planificación utiliza el camino más corto evitando segmentos bloqueados.
+- La planificación utiliza Dijkstra ponderado por la distancia euclidiana real
+  entre nodos, más un costo de congestión proporcional a cuántos robots ya
+  recorren cada segmento, evitando segmentos bloqueados.
 - Las asignaciones consideran disponibilidad, batería, capacidad y distancia.
 - Los segmentos se reservan por ciclo para evitar que dos robots los ocupen a la vez.
 - Las cargas se identifican por pallet y SSCC.
 - Los cambios se guardan en `localStorage` para mantener el laboratorio autocontenido.
+- El estado de la flota puede transmitirse por WebSocket (`lib/unreal-bridge.ts`)
+  a un gemelo digital en Unreal Engine 5, en metros y con heading por robot,
+  sin acoplar el motor de simulación a ningún renderer específico.
 
 ## Límites de seguridad
 
@@ -50,6 +58,9 @@ certificado. PULSEFLEET envía objetivos y recibe estados.
 4. Añadir un adaptador VDA 5050 o Open-RMF.
 5. Conectar LOGISTPULSE mediante órdenes de misión.
 6. Reemplazar el AMR simulado por Gazebo/ROS 2 o una flota real.
+7. ~~Puente de datos hacia un gemelo digital 3D~~ — cubierto por
+   `lib/unreal-bridge.ts` + `scripts/unreal-bridge-server.mjs`; pendiente de
+   validar con un proyecto real de Unreal Engine 5 (NavMesh, cámaras, VR).
 
 La interfaz puede conservarse durante estas etapas porque depende del modelo de
 misiones y telemetría, no del motor físico del robot.

@@ -185,32 +185,89 @@ export const incidentsSeed: Incident[] = [
 export const nodeById = (nodes: MapNode[], id: string) =>
   nodes.find((node) => node.id === id)
 
+export function edgeDistance(nodes: MapNode[], edge: MapEdge): number {
+  const from = nodeById(nodes, edge.from)
+  const to = nodeById(nodes, edge.to)
+  if (!from || !to) return Infinity
+  return Math.hypot(to.x - from.x, to.y - from.y)
+}
+
+/**
+ * Camino más corto ponderado (Dijkstra) por distancia euclidiana real entre
+ * nodos, con un costo adicional de congestión proporcional al número de
+ * robots que ya están recorriendo cada segmento. Esto permite que el
+ * planificador prefiera rutas más largas pero libres en vez de siempre el
+ * camino con menos saltos.
+ *
+ * `robots` es opcional para no romper llamadas existentes que solo quieren
+ * el camino más corto físico (por ejemplo, ir a un cargador).
+ */
 export function shortestPath(
   nodes: MapNode[],
   edges: MapEdge[],
   from: string,
   to: string,
+  robots: Robot[] = [],
+  congestionWeight = 40,
 ): string[] {
   if (from === to) return [from]
-  const adjacency = new Map<string, string[]>()
+
+  const congestion = new Map<string, number>()
+  robots.forEach((robot) => {
+    for (let index = 0; index < robot.route.length - 1; index += 1) {
+      const key = [robot.route[index], robot.route[index + 1]].sort().join("::")
+      congestion.set(key, (congestion.get(key) ?? 0) + 1)
+    }
+  })
+
+  interface AdjEntry { to: string; cost: number }
+  const adjacency = new Map<string, AdjEntry[]>()
   nodes.forEach((node) => adjacency.set(node.id, []))
   edges.filter((edge) => !edge.blocked).forEach((edge) => {
-    adjacency.get(edge.from)?.push(edge.to)
-    if (!edge.oneWay) adjacency.get(edge.to)?.push(edge.from)
+    const base = edgeDistance(nodes, edge)
+    const key = [edge.from, edge.to].sort().join("::")
+    const cost = base + (congestion.get(key) ?? 0) * congestionWeight
+    adjacency.get(edge.from)?.push({ to: edge.to, cost })
+    if (!edge.oneWay) adjacency.get(edge.to)?.push({ to: edge.from, cost })
   })
-  const queue: string[][] = [[from]]
-  const visited = new Set([from])
-  while (queue.length) {
-    const path = queue.shift()!
-    for (const next of adjacency.get(path[path.length - 1]) ?? []) {
+
+  const dist = new Map<string, number>(nodes.map((node) => [node.id, Infinity]))
+  const prev = new Map<string, string>()
+  const visited = new Set<string>()
+  dist.set(from, 0)
+
+  while (visited.size < nodes.length) {
+    let current: string | null = null
+    let currentDist = Infinity
+    for (const [id, d] of dist) {
+      if (!visited.has(id) && d < currentDist) {
+        current = id
+        currentDist = d
+      }
+    }
+    if (current === null) break
+    if (current === to) break
+    visited.add(current)
+    for (const { to: next, cost } of adjacency.get(current) ?? []) {
       if (visited.has(next)) continue
-      const nextPath = [...path, next]
-      if (next === to) return nextPath
-      visited.add(next)
-      queue.push(nextPath)
+      const candidate = currentDist + cost
+      if (candidate < (dist.get(next) ?? Infinity)) {
+        dist.set(next, candidate)
+        prev.set(next, current)
+      }
     }
   }
-  return []
+
+  if (!prev.has(to) && from !== to) return []
+  const path: string[] = [to]
+  let cursor = to
+  while (cursor !== from) {
+    const previous = prev.get(cursor)
+    if (!previous) return []
+    path.unshift(previous)
+    cursor = previous
+  }
+  return path
 }
 
 export const statusLabel: Record<RobotStatus, string> = {

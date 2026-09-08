@@ -2,10 +2,10 @@
 
 import { useMemo, useState } from "react"
 import {
-  Activity, AlertTriangle, BatteryCharging, Bot, Box, CheckCircle2, CirclePause,
-  CirclePlay, Clock3, Command, Gauge, LayoutDashboard, ListTodo, Map, MapPin,
+  Activity, AlertTriangle, BatteryCharging, Bot, Box, Cable, CheckCircle2, CirclePause,
+  CirclePlay, Clock3, Command, Copy, Gauge, LayoutDashboard, ListTodo, Map, MapPin,
   Navigation, PackageCheck, Pause, Play, Plus, RefreshCw, Route, ScanLine,
-  ShieldAlert, Siren, SlidersHorizontal, Truck, Warehouse, WifiOff, XCircle,
+  ShieldAlert, Siren, SlidersHorizontal, Truck, Warehouse, Wifi, WifiOff, XCircle,
   Zap,
 } from "lucide-react"
 import { toast } from "sonner"
@@ -34,10 +34,12 @@ import { Switch } from "@/components/ui/switch"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Toaster } from "@/components/ui/sonner"
 import { usePulseFleet } from "@/hooks/use-pulsefleet"
+import { useUnrealBridge, type BridgeStatus } from "@/hooks/use-unreal-bridge"
 import {
   missionStatusLabel, statusLabel, type Incident, type MapNode, type Mission,
   type Priority, type Robot, type ScreenId,
 } from "@/lib/pulsefleet"
+import { buildUnrealSnapshot } from "@/lib/unreal-bridge"
 import { cn } from "@/lib/utils"
 
 const screens: { id: ScreenId; label: string; icon: typeof LayoutDashboard }[] = [
@@ -373,6 +375,56 @@ function IncidentCenter({ engine }: { engine: ReturnType<typeof usePulseFleet> }
   )
 }
 
+const bridgeStatusLabel: Record<BridgeStatus, string> = {
+  disconnected: "Desconectado", connecting: "Conectando…", connected: "Conectado", error: "Error de conexión",
+}
+
+function UnrealBridgePanel({ engine }: { engine: ReturnType<typeof usePulseFleet> }) {
+  const [url, setUrl] = useState("ws://localhost:8787")
+  const [enabled, setEnabled] = useState(false)
+  const { status } = useUnrealBridge({
+    url,
+    enabled,
+    state: engine,
+    onToggleEdge: engine.toggleEdge,
+    onRobotAction: engine.robotAction,
+  })
+
+  const copySnapshot = async () => {
+    const snapshot = buildUnrealSnapshot(engine)
+    await navigator.clipboard.writeText(JSON.stringify(snapshot, null, 2))
+    toast.success("Snapshot JSON copiado (formato pulsefleet.unreal.v1)")
+  }
+
+  return (
+    <Card className="border-slate-200">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base"><Cable className="size-4" />Puente Unreal Engine 5</CardTitle>
+        <CardDescription>Transmite el gemelo digital (nodos, rutas, robots) a un proyecto UE5 vía WebSocket.</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="space-y-1.5">
+          <Label htmlFor="bridge-url">URL del puente</Label>
+          <Input id="bridge-url" value={url} onChange={(event) => setUrl(event.target.value)} placeholder="ws://localhost:8787" />
+        </div>
+        <div className="flex items-center justify-between rounded-xl bg-slate-50 p-3">
+          <div className="flex items-center gap-2 text-sm font-semibold">
+            {status === "connected" ? <Wifi className="size-4 text-emerald-600" /> : <WifiOff className="size-4 text-slate-400" />}
+            {bridgeStatusLabel[status]}
+          </div>
+          <Switch checked={enabled} onCheckedChange={setEnabled} aria-label="Activar puente Unreal" />
+        </div>
+        <Button variant="outline" className="w-full" onClick={copySnapshot}>
+          <Copy className="size-4" />Copiar snapshot JSON
+        </Button>
+        <p className="text-xs leading-5 text-slate-500">
+          Ejecuta <code className="rounded bg-slate-100 px-1">npm run bridge:server</code> y conecta tu proyecto UE5 a la misma URL. El snapshot usa metros ({buildUnrealSnapshot(engine).metersPerUnit} u/px) y ángulo de robot en grados.
+        </p>
+      </CardContent>
+    </Card>
+  )
+}
+
 function MapEditor({ engine }: { engine: ReturnType<typeof usePulseFleet> }) {
   const [label, setLabel] = useState("Nueva estación")
   const [type, setType] = useState<MapNode["type"]>("STAGING")
@@ -388,6 +440,7 @@ function MapEditor({ engine }: { engine: ReturnType<typeof usePulseFleet> }) {
         <Card className="border-slate-200"><CardHeader><CardTitle className="text-base">Edición de rutas</CardTitle><CardDescription>Selecciona un segmento en el mapa para bloquearlo o habilitarlo.</CardDescription></CardHeader><CardContent className="space-y-2"><div className="flex justify-between rounded-xl bg-slate-50 p-3 text-sm"><span>Versión del mapa</span><strong>PLANTA-V1.3</strong></div><div className="flex justify-between rounded-xl bg-slate-50 p-3 text-sm"><span>Nodos</span><strong>{engine.nodes.length}</strong></div><div className="flex justify-between rounded-xl bg-slate-50 p-3 text-sm"><span>Segmentos bloqueados</span><strong className="text-red-600">{engine.edges.filter((edge) => edge.blocked).length}</strong></div></CardContent></Card>
         <Card className="border-slate-200"><CardHeader><CardTitle className="text-base">Añadir nodo</CardTitle></CardHeader><CardContent className="space-y-3"><div className="space-y-1.5"><Label htmlFor="node-label">Nombre</Label><Input id="node-label" value={label} onChange={(event) => setLabel(event.target.value)} /></div><div className="space-y-1.5"><Label htmlFor="node-type">Tipo</Label><NativeSelect id="node-type" className="w-full" value={type} onChange={(event) => setType(event.target.value as MapNode["type"])}><NativeSelectOption value="RACK">Rack</NativeSelectOption><NativeSelectOption value="STAGING">Staging</NativeSelectOption><NativeSelectOption value="DOCK">Muelle</NativeSelectOption><NativeSelectOption value="CHARGER">Cargador</NativeSelectOption><NativeSelectOption value="JUNCTION">Cruce</NativeSelectOption></NativeSelect></div><div className="grid grid-cols-2 gap-2"><div className="space-y-1.5"><Label htmlFor="node-x">X</Label><Input id="node-x" type="number" value={x} onChange={(event) => setX(event.target.value)} /></div><div className="space-y-1.5"><Label htmlFor="node-y">Y</Label><Input id="node-y" type="number" value={y} onChange={(event) => setY(event.target.value)} /></div></div><Button className="w-full" onClick={() => { engine.addNode({ label, type, x: Number(x), y: Number(y) }); toast.success("Nodo añadido al mapa") }}><Plus className="size-4" />Añadir nodo</Button></CardContent></Card>
         <Card className="border-slate-200"><CardHeader><CardTitle className="text-base">Conectar nodos</CardTitle></CardHeader><CardContent className="space-y-3"><div className="grid grid-cols-2 gap-2"><div className="space-y-1.5"><Label htmlFor="edge-from">Desde</Label><NativeSelect id="edge-from" className="w-full" value={edgeFrom} onChange={(event) => setEdgeFrom(event.target.value)}>{engine.nodes.map((node) => <NativeSelectOption key={node.id} value={node.id}>{node.id}</NativeSelectOption>)}</NativeSelect></div><div className="space-y-1.5"><Label htmlFor="edge-to">Hasta</Label><NativeSelect id="edge-to" className="w-full" value={edgeTo} onChange={(event) => setEdgeTo(event.target.value)}>{engine.nodes.map((node) => <NativeSelectOption key={node.id} value={node.id}>{node.id}</NativeSelectOption>)}</NativeSelect></div></div><div className="flex items-center justify-between rounded-xl bg-slate-50 p-3"><Label htmlFor="one-way">Un solo sentido</Label><Switch id="one-way" checked={oneWay} onCheckedChange={setOneWay} /></div><Button variant="outline" className="w-full" onClick={() => { engine.addEdge(edgeFrom, edgeTo, oneWay); toast.success("Conexión añadida") }}><Route className="size-4" />Crear conexión</Button></CardContent></Card>
+        <UnrealBridgePanel engine={engine} />
       </div>
     </div>
   )

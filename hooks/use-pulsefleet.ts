@@ -43,8 +43,8 @@ function assignment(state: SimulationState, missionId: string): SimulationState 
   const candidates = state.robots
     .filter((robot) => robot.status === "AVAILABLE" && robot.battery >= 25 && robot.capacityKg >= mission.weightKg)
     .map((robot) => {
-      const toPickup = shortestPath(state.nodes, state.edges, robot.nodeId, mission.origin)
-      const toDelivery = shortestPath(state.nodes, state.edges, mission.origin, mission.destination)
+      const toPickup = shortestPath(state.nodes, state.edges, robot.nodeId, mission.origin, state.robots)
+      const toDelivery = shortestPath(state.nodes, state.edges, mission.origin, mission.destination, state.robots)
       return { robot, toPickup, score: toPickup.length + toDelivery.length - robot.battery / 50 }
     })
     .filter((item) => item.toPickup.length > 0)
@@ -111,7 +111,7 @@ export function usePulseFleet() {
         const claimedSegments = new Set<string>()
         const robots = current.robots.map((robot) => {
           if (robot.status === "AVAILABLE" && robot.battery < 20) {
-            const route = shortestPath(current.nodes, current.edges, robot.nodeId, "CHARGER-01")
+            const route = shortestPath(current.nodes, current.edges, robot.nodeId, "CHARGER-01", current.robots)
             if (route.length <= 1) return { ...robot, status: "CHARGING" as RobotStatus }
             return {
               ...robot, status: "MOVING_TO_DESTINATION" as RobotStatus, targetMode: "CHARGE" as const,
@@ -129,7 +129,7 @@ export function usePulseFleet() {
             if (robot.phaseTicks > 0) return { ...robot, phaseTicks: robot.phaseTicks - 1 }
             const mission = missions.find((item) => item.id === robot.missionId)
             if (!mission) return { ...robot, status: "AVAILABLE" as RobotStatus, missionId: undefined }
-            const route = shortestPath(current.nodes, current.edges, mission.origin, mission.destination)
+            const route = shortestPath(current.nodes, current.edges, mission.origin, mission.destination, current.robots)
             if (!route.length) {
               updateMission(robot.missionId, { status: "FAILED" })
               incidents.unshift({
@@ -186,7 +186,7 @@ export function usePulseFleet() {
               const target = robot.targetMode === "CHARGE"
                 ? "CHARGER-01"
                 : robot.status === "MOVING_TO_PICKUP" ? activeMission?.origin : activeMission?.destination
-              const alternate = target ? shortestPath(current.nodes, current.edges, robot.nodeId, target) : []
+              const alternate = target ? shortestPath(current.nodes, current.edges, robot.nodeId, target, current.robots) : []
               if (!incidents.some((incident) => incident.status !== "RESOLVED" && incident.robotId === robot.id && incident.type === "ROUTE_BLOCKED")) {
                 incidents.unshift({
                   id: `INC-${Date.now()}-${robot.id}`, severity: "HIGH", type: "ROUTE_BLOCKED",
@@ -285,7 +285,7 @@ export function usePulseFleet() {
           return { ...robot, status: robot.missionId ? (robot.payload ? "MOVING_TO_DESTINATION" : "MOVING_TO_PICKUP") : "AVAILABLE" }
         }
         if (action === "CHARGE" && robot.status === "AVAILABLE") {
-          const route = shortestPath(current.nodes, current.edges, robot.nodeId, "CHARGER-01")
+          const route = shortestPath(current.nodes, current.edges, robot.nodeId, "CHARGER-01", current.robots)
           if (route.length <= 1) return { ...robot, status: "CHARGING" }
           return { ...robot, status: "MOVING_TO_DESTINATION", route, routeIndex: 0, segmentProgress: 0, targetMode: "CHARGE" }
         }
@@ -295,7 +295,7 @@ export function usePulseFleet() {
           if (!mission) return { ...robot, status: "AVAILABLE", missionId: undefined, payload: undefined, route: [] }
           const headingToDestination = ["IN_TRANSIT", "DELIVERY"].includes(mission.status)
           const target = headingToDestination ? mission.destination : mission.origin
-          const route = shortestPath(current.nodes, current.edges, robot.nodeId, target)
+          const route = shortestPath(current.nodes, current.edges, robot.nodeId, target, current.robots)
           if (!route.length) return robot
           return {
             ...robot,
